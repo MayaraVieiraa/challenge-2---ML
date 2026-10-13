@@ -1,0 +1,23 @@
+# ambiente e cache
+.venv/
+venv/
+__pycache__/
+*.pyc
+.DS_Store
+.vscode/
+.ipynb_checkpoints/
+
+# dados (baixar novamente pelos scripts)
+dados/
+dados_tratados/
+dados_externos/
+Fake.br-Corpus/
+
+# saidas e modelos treinados (regeneraveis)
+*_outputs/
+*_outputs_*/
+modelos_salvos/
+*.joblib
+*.npy
+*.npz
+*.pkl
