@@ -1,151 +1,44 @@
-# Modelos — Protocolo Comum
+# Classificador de notícias falsas (FakeRecogna 2.0)
 
-Todos os scripts desta pasta seguem o mesmo protocolo, para que os resultados
-sejam comparáveis entre si.
+Projeto acadêmico em grupo: classificador de fake news em português treinado na FakeRecogna 2.0
+(Hugging Face `recogna-nlp`, variante extrativa), com auditoria de vazamento e teste externo no Fake.br.
 
-## Como instalar e executar
+## Resultados até agora
+- Validação cruzada (base casada por tamanho, 17.648 textos): AUC 0,96 a 0,98 (stacking 0,985).
+- Teste externo no Fake.br (7.200 textos): AUC 0,72 a 0,77. O desempenho na base não vale para notícias de fora dela.
+- Teste reservado (3.529 textos, avaliado uma única vez): stacking AUC 0,9892; char 0,9871; SVM 0,9835. Vale para a mesma coleção, não para notícias de fora.
 
-Não é obrigatório criar uma pasta `venv`. Com o Python 3 instalado, abra o
-PowerShell na pasta raiz do projeto (a pasta que contém `requirements.txt`) e
-instale as dependências no ambiente Python disponível:
+## Classificar notícias novas
+```bash
+python3 modelos/avaliar_externo.py --externo dados_externos/fakebr_t100.csv --salvar   # gera modelos_salvos/
+python3 modelos/classificar.py --csv noticias.csv --saida resultado.csv                # coluna Noticia
+```
+O `p_fake` é um indício, não um veredito (AUC externo ~0,75). Use textos de 50 palavras ou mais.
 
-```powershell
-python --version
-python -m pip install -r requirements.txt
+## Como reproduzir
+```bash
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+
+# 1. baixar a FakeRecogna 2.0 (extrativa) para dados/fakerecogna2_extrativa.csv
+# 2. tratamento
+python3 tratamento/preparar_fakerecogna2.py --variante extrativa
+python3 tratamento/casar_tamanho.py --variante extrativa --largura 5
+# 3. modelos, auditorias e stacking
+python3 executar_tudo.py --sem-bertopic
+# 4. teste externo (clonar antes https://github.com/roneysco/Fake.br-Corpus fora do projeto)
+python3 tratamento/preparar_fakebr.py --repo ~/Downloads/Fake.br-Corpus --truncar 100
+python3 modelos/avaliar_externo.py --externo dados_externos/fakebr_t100.csv --salvar
 ```
 
-Se o comando `python` não estiver disponível no Windows, use `py` no lugar:
+## Estrutura
+- `tratamento/`: preparo da base, dedup, casamento por tamanho, preparo do Fake.br
+- `modelos/`: baseline, SVM, NB, char n-gramas, GBM, stacking, teste externo (veja `modelos/README.md`)
+- `auditoria/`: vazamento, duplicação, vocabulário editorial
+- Dados, saídas e modelos treinados não vão para o Git (ver `.gitignore`).
 
-```powershell
-py --version
-py -m pip install -r requirements.txt
-```
-
-Para baixar e preparar a base FakeRecogna2 Extrativa:
-
-```powershell
-python tratamento/preparar_fakerecogna2.py
-```
-
-Para executar a análise exploratória:
-
-```powershell
-python eda/eda.py
-```
-
-Os resultados são gravados em `dados_tratados/` e `eda_outputs/`. Os comandos
-devem ser executados a partir da raiz do projeto. Instalar as dependências sem
-`venv` pode afetar outros projetos que usem o mesmo Python.
-
-Para rodar TODA a modelagem (modelos, análise de erros, auditorias e stacking) de uma vez:
-
-```powershell
-python executar_tudo.py                      # padrão: só Noticia (sem o vazamento do título)
-python executar_tudo.py --entrada titulo_noticia  # protocolo ORIGINAL com título (saídas em *_titulo_noticia/)
-python executar_tudo.py --backend tfidf-svd  # BERTopic offline, sem baixar modelo
-python executar_tudo.py --final              # + avaliação única no teste (só no fim)
-```
-
-Ou script a script: `python modelos/treinar_baseline.py`, `treinar_svm.py`, `treinar_nb.py`,
-`treinar_bertopic.py`, `analisar_erros.py`, `auditoria/auditar_*.py` e, por último,
-`modelos/stacking.py`.
-
-## Base de dados
-
-Todos os modelos e auditorias leem de:
-
-  dados_tratados/FakeRecogna2_extrativa_dedup.csv
-
-- Entrada padrão: somente `Noticia`. As opções `titulo_noticia` e `titulo_limpo_noticia` continuam disponíveis, mas conclusões de auditorias da base anterior não devem ser generalizadas para esta base sem reexecução.
-- Features proibidas: `Categoria`, `Dominio`, `URL`, `Autor`, `Classe`,
-  `Rotulo`, `Data`, `Ano`, `AnoMes`, e as 10 features estruturais
-  (n_caracteres, n_palavras, etc.)
-
-## Vetorização
-
-    TfidfVectorizer(
-        ngram_range=(1, 2),
-        min_df=5,
-        max_df=0.9,
-        sublinear_tf=True,
-        strip_accents="unicode",
-    )
-
-Mesmos parâmetros para os três modelos.
-
-## Split
-
-`StratifiedKFold(n_splits=5, shuffle=True, random_state=42)`
-
-- Validação cruzada de 5 folds, estratificada por classe
-- Cada modelo reporta média e desvio-padrão das métricas entre folds
-- `random_state=42` fixo para reprodutibilidade
-
-O conjunto de teste final (80/20) é reservado para a entrega final, não
-usado durante a comparação.
-
-## Métricas reportadas
-
-Todas as métricas a seguir devem ser salvas em `metricas.json`:
-
-- `accuracy` — referência apenas, não usada para escolha
-- `roc_auc` — métrica principal de discriminação
-- `pr_auc` — métrica complementar
-- `brier` — métrica principal de calibração
-- `precision`, `recall`, `f1` — por classe (Fake/Real)
-- `roc_auc_ic95` — intervalo de confiança via bootstrap (1000 reamostragens)
-
-## Calibração
-
-- **Logistic Regression**: medir calibração nativa, sem `CalibratedClassifierCV`
-- **Linear SVM**: obrigatório usar `CalibratedClassifierCV`; testar
-  `method="sigmoid"` e `method="isotonic"` e reportar ambos
-- **Multinomial NB**: obrigatório usar `CalibratedClassifierCV`; reportar
-  Brier antes e depois da calibração
-
-## Saída
-
-Cada script salva em `modelos_outputs/<nome_do_modelo>/`:
-
-    metricas.json
-    reliability.png
-    matriz_confusao.png
-    classification_report.txt
-    coeficientes.csv        (apenas o baseline)
-
-## Critério de comparação entre modelos
-
-A ordem de decisão para escolher o modelo vencedor é:
-
-1. Maior `roc_auc` com IC95% **não sobreposto** ao baseline
-2. Menor `brier`
-3. Menor complexidade em caso de empate
-
-Acurácia **não é critério de escolha**.
-
-## Scripts desta pasta
-
-| Script | Responsável | O que faz |
-|---|---|---|
-| `treinar_baseline.py` | Mayara | TF-IDF + Regressão Logística (calibração nativa), coeficientes |
-| `treinar_svm.py` | Rayssa | LinearSVC + CalibratedClassifierCV (sigmoid e isotonic) |
-| `treinar_nb.py` | Rafaella | MultinomialNB + CalibratedClassifierCV (Brier antes/depois) |
-| `treinar_extras.py` | Mayara | char n-gramas + SVM calibrado; TF-IDF→SVD→GBM (diversidade para o stacking) |
-| `treinar_bertopic.py` | Mayara | BERTopic (tópicos) + LR; tabela tópico x rótulo |
-| `analisar_erros.py` | Mayara | 50 exemplos por quadrante para codificação manual |
-| `stacking.py` | Equipe | tabela comparativa, soft voting, stacking e decisão do protocolo |
-| `_entrada.py` | — | único código compartilhado: monta o texto de entrada |
-
-Todos gravam `oof_<modelo>.csv` (probabilidades fora-do-fold) e `teste_<modelo>.csv`
-(probabilidades no teste, SEM calcular métrica de teste). O split é idêntico em todos:
-ids = posição da linha no CSV; teste 80/20 estratificado (seed 42) + 5 folds no restante.
-
-## Parâmetro `--entrada` (adicionado após a auditoria de vazamento)
-
-`noticia` (padrão), `titulo_noticia` ou `titulo_limpo_noticia`. Execute novamente as auditorias
-para avaliar vazamento editorial na base atual antes de interpretar resultados com título.
-
-## Auditorias (`auditoria/`)
-
-`auditar_vazamento.py`, `auditar_duplicacao.py` e `auditar_vocabulario_editorial.py` escrevem em
-`auditoria_outputs/` (`RESUMO_AUDITORIA.md` consolida). Usam só o desenvolvimento e os mesmos folds.
+## Decisões importantes
+- `Label 1` = Fake na 2.0. Dedup só por texto (por URL apagaria trechos distintos).
+- Divisão com `StratifiedGroupKFold` (coluna `Grupo`); teste reservado avaliado uma única vez.
+- Entrada dos modelos: só `Noticia` (títulos trazem marcadores de veredito).
+- BERTopic fica fora do stacking (AUC ~0,75).
