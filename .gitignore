@@ -21,3 +21,8 @@ modelos_salvos/
 *.npy
 *.npz
 *.pkl
+
+# diagnosticos soltos
+diagnostico_falsos_positivos.csv
+modelos/diagnosticar_falsos_positivos.py
+teste1.txt

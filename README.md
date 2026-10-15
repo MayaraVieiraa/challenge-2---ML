@@ -6,7 +6,9 @@ Projeto acadêmico em grupo: classificador de fake news em português treinado n
 ## Resultados
 - Validação cruzada agrupada por URL (17.648 textos): stacking com ROC AUC 0,9855 e Brier 0,0436; melhor modelo individual, char n-gramas, AUC 0,9925.
 - Teste externo no Fake.br (7.200 textos): SVM teve a maior AUC (0,7681); stacking obteve 0,7388. Sem o domínio Fake dominante, stacking chegou a 0,7801, em 3.865 textos.
-- O teste reservado da FakeRecogna 2.0 (3.529 textos) ainda não foi avaliado.
+- Teste reservado da FakeRecogna 2.0 (3.529 textos, avaliado uma única vez): stacking AUC 0,9892.
+- Falsos positivos: com treino só na FakeRecogna, 26% das notícias Reais do Fake.br saem como Fake no limiar 0,5 (o Real da base de treino é quase só de 2020-2021, sobre covid; o modelo aprendeu época e tema).
+- Correção: metade dos pares do Fake.br entra no treino (`--treino-externo 0.5`) e a outra metade serve de teste. Stacking: AUC 0,961; 10% dos Reais como Fake no limiar 0,5. Com três faixas no `classificar.py` (Real < 0,3, Incerto, Fake >= 0,7): 4,9% dos Reais como Fake, 81% dos Fake detectados, 14% em Incerto. Esse teste não é independente (pares das mesmas fontes); fora do diariodobrasil.org (92% dos Fake) há só 141 Fake no teste.
 
 Os resultados externos são inferiores aos da validação interna: o desempenho não se transfere integralmente para notícias de outras fontes. O BERTopic fica fora do pipeline final.
 
@@ -23,7 +25,8 @@ python3 tratamento/casar_tamanho.py --variante extrativa --largura 5
 python3 executar_tudo.py --sem-bertopic
 # 4. teste externo (clonar antes https://github.com/roneysco/Fake.br-Corpus fora do projeto)
 python3 tratamento/preparar_fakebr.py --repo ~/Downloads/Fake.br-Corpus --truncar 100
-python3 modelos/avaliar_externo.py --externo dados_externos/fakebr_t100.csv --salvar
+python3 modelos/avaliar_externo.py --externo dados_externos/fakebr_t100.csv --salvar                      # só mede (treino só na FakeRecogna)
+python3 modelos/avaliar_externo.py --externo dados_externos/fakebr_t100.csv --treino-externo 0.5 --salvar  # modelos de produção
 ```
 
 ## Estrutura

@@ -352,7 +352,7 @@ def main():
         pd.DataFrame({"id": te["id"], "y_fake": yt, **{f"p_fake_{k}": v for k, v in pt.items()}}).to_csv(
             saida / "teste_stacking.csv", index=False)
         (saida / "teste_final_LEIA-ME.txt").write_text(
-            "AVALIAÇÃO ÚNICA NO TESTE RESERVADO (2.334 notícias). Feita DEPOIS de fixar o modelo pela validação cruzada "
+            f"AVALIAÇÃO ÚNICA NO TESTE RESERVADO ({len(yt)} notícias). Feita DEPOIS de fixar o modelo pela validação cruzada "
             f"(decisão final: {decisao_final}). Não use estes números para escolher outro modelo.\n", encoding="utf-8")
         print("\n=== TESTE FINAL (avaliação única) ===")
         print(tt[["roc_auc", "auc_ic95_inf", "auc_ic95_sup", "pr_auc", "brier", "ece", "accuracy"]].round(4).to_string())

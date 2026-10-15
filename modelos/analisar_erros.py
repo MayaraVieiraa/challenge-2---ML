@@ -25,7 +25,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _entrada import ENTRADAS  # noqa: E402
 
 RAIZ = Path(__file__).resolve().parents[1]
-DADOS = RAIZ / "dados_tratados" / os.environ.get("BASE_DADOS", "FakeRecogna2_extrativa_dedup.csv")
+DADOS = RAIZ / "dados_tratados" / os.environ.get("BASE_DADOS", "FakeRecogna2_extrativa_casada.csv")
 SEED = 42
 N = 50
 CATEGORIAS = ["tema", "vocabulario", "tamanho", "estilo", "nomes", "estrutura", "periodo", "ambiguidade"]

@@ -22,15 +22,15 @@ from joblib import Parallel, delayed
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score, brier_score_loss, roc_auc_score
-from sklearn.model_selection import StratifiedKFold, train_test_split
 from sklearn.pipeline import Pipeline
 
 RAIZ = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(RAIZ / "modelos"))
+from _divisao import dividir_grupos, grupos_de  # noqa: E402
 from _entrada import ENTRADAS, limpar_titulo, montar_texto  # noqa: E402,F401
 
 SEED = 42
-DADOS = RAIZ / "dados_tratados" / os.environ.get("BASE_DADOS", "FakeRecogna2_extrativa_dedup.csv")
+DADOS = RAIZ / "dados_tratados" / os.environ.get("BASE_DADOS", "FakeRecogna2_extrativa_casada.csv")
 
 
 def pasta_saida(base=None):
@@ -48,13 +48,8 @@ def carregar_df():
 
 
 def dividir(y):
-    ids = np.arange(len(y))
-    ids_dev, ids_te = train_test_split(ids, test_size=0.2, stratify=y, random_state=SEED)
-    skf = StratifiedKFold(n_splits=5, shuffle=True, random_state=SEED)
-    folds = np.full(len(ids_dev), -1)
-    for k, (_, va) in enumerate(skf.split(ids_dev, y[ids_dev])):
-        folds[va] = k
-    return ids_dev, ids_te, folds
+    """Mesmo split dos modelos (modelos/_divisao.py): agrupado por URL."""
+    return dividir_grupos(y, grupos_de(DADOS, len(y)))
 
 
 def tfidf_protocolo(**kw):

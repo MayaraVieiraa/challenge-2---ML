@@ -19,6 +19,15 @@ Alem dos modelos individuais, avalia o STACKING (mesmo desenho do stacking.py: m
 logistico sobre o logit das probabilidades fora-da-dobra do desenvolvimento). Use
 --sem-stacking para pular essa parte (ela refaz o treino de cada modelo em 5 dobras).
 
+--treino-externo F (0 a 1): poe a fracao F dos PARES do CSV externo no TREINO (junto com a base) e
+avalia so nos pares restantes. Cada par (fake_N + true_N, mesma materia) fica inteiro de um lado, e a
+divisao e fixa (seed 42). Motivo: a base de treino tem Real quase so de 2020-2021 (covid) e Fake de
+varias epocas; sem ver noticias de outra epoca/fonte, o modelo marca como Fake 26% dos Reais do
+Fake.br. Com F=0,5 (stacking, pares de teste) o AUC no Fake.br sobe de 0,74 para 0,96 e os Reais marcados como
+Fake (limiar 0,5) caem de 26% para 10%. O teste deixa de ser independente: os pares de teste vem das
+mesmas fontes dos de treino. Os modelos
+salvos vao para modelos_salvos/<base>_com_fakebr/ (o classificar.py usa essa pasta se ela existir).
+
 Tambem mostra o AUC SEM o site dominante dos Fake (ex.: diariodobrasil.org, 92% dos Fake do
 Fake.br), para ver se o resultado depende de um unico site.
 """
@@ -36,6 +45,7 @@ import pandas as pd
 from sklearn.base import clone
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score, brier_score_loss, roc_auc_score
+from sklearn.model_selection import StratifiedGroupKFold
 from sklearn.pipeline import Pipeline
 
 RAIZ = Path(__file__).resolve().parents[1]
@@ -51,7 +61,7 @@ def construtores():
     e = importlib.import_module("treinar_extras")
     m["baseline"] = b.montar_modelo
     m["svm"] = lambda: Pipeline([("tfidf", s.vetorizador()), ("clf", s.svm_calibrado(1.0, "sigmoid"))])
-    m["nb"] = n.MODELOS["depois_isotonic"]
+    m["nb"] = n.MODELOS["depois_sigmoid"]   # o escolhido na validacao cruzada (ver nb/metricas.json)
     m["char"] = e.MODELOS["char"]
     m["gbm"] = e.MODELOS["gbm"]
     return m
@@ -76,6 +86,8 @@ def main():
     ap.add_argument("--base", default=os.environ.get("BASE_DADOS", "FakeRecogna2_extrativa_casada.csv"))
     ap.add_argument("--modelos", nargs="+", default=["baseline", "svm", "nb", "char", "gbm"])
     ap.add_argument("--salvar", action="store_true", help="grava os modelos treinados (joblib)")
+    ap.add_argument("--treino-externo", type=float, default=0.0, metavar="F",
+                    help="fracao dos pares do externo que entra no treino (0 = nenhum; 0,5 recomendado)")
     ap.add_argument("--sem-stacking", action="store_true", help="nao avalia o stacking")
     a = ap.parse_args()
     os.environ["BASE_DADOS"] = a.base
@@ -96,6 +108,28 @@ def main():
           f"({ye.mean():.1%} Fake) de {Path(a.externo).name}", flush=True)
 
     nome_ext = Path(a.externo).stem
+    pasta_salvos = Path(a.base).stem
+    if a.treino_externo > 0:
+        if not 0 < a.treino_externo < 1 or "id" not in ext:
+            sys.exit("--treino-externo exige 0 < F < 1 e uma coluna 'id' (fake_N / true_N) no CSV externo")
+        par = ext["id"].astype(str).str.split("_").str[-1].to_numpy()
+        pares = np.unique(par)
+        rng = np.random.default_rng(42)
+        treino_par = set(rng.permutation(pares)[:int(round(a.treino_externo * len(pares)))])
+        no_treino = np.array([q in treino_par for q in par])
+        # folds do trecho externo: por par, para o stacking nao ver o mesmo par no treino e na validacao
+        f_ext_all = np.full(int(no_treino.sum()), -1)
+        sg = StratifiedGroupKFold(n_splits=5, shuffle=True, random_state=42)
+        for k, (_, va) in enumerate(sg.split(Xe[no_treino], ye[no_treino], groups=par[no_treino])):
+            f_ext_all[va] = k
+        Xd = np.concatenate([Xd, Xe[no_treino]])
+        yd = np.concatenate([yd, ye[no_treino]])
+        folds = np.concatenate([folds, f_ext_all])
+        ext, Xe, ye = ext[~no_treino].reset_index(drop=True), Xe[~no_treino], ye[~no_treino]
+        nome_ext += f"_treino{int(round(a.treino_externo * 100))}"
+        pasta_salvos += "_com_fakebr"
+        print(f"{int(no_treino.sum())} textos ({len(treino_par)} pares) do externo foram para o TREINO; "
+              f"teste externo: {len(ye)} textos ({ye.mean():.1%} Fake). Treino total: {len(yd)}", flush=True)
     saida = RAIZ / f"modelos_outputs_{Path(a.base).stem.replace('FakeRecogna2_', '')}" / f"externo_{nome_ext}"
     saida.mkdir(parents=True, exist_ok=True)
     cons = construtores()
@@ -111,7 +145,7 @@ def main():
               f"recall Fake={linhas[-1]['recall_fake']:.3f} Real={linhas[-1]['recall_real']:.3f} ({time.time() - t0:.0f}s)", flush=True)
         modelos_ajustados[nome] = mod
         if a.salvar:
-            pasta = RAIZ / "modelos_salvos" / Path(a.base).stem
+            pasta = RAIZ / "modelos_salvos" / pasta_salvos
             pasta.mkdir(parents=True, exist_ok=True)
             joblib.dump(mod, pasta / f"{nome}.joblib")
     usados = list(a.modelos)
@@ -133,7 +167,7 @@ def main():
               f"recall Fake={linhas[-1]['recall_fake']:.3f} Real={linhas[-1]['recall_real']:.3f} ({time.time() - t0:.0f}s)", flush=True)
         print("  pesos do meta-modelo:", {n: round(float(c), 3) for n, c in zip(usados, meta.coef_.ravel())})
         if a.salvar:
-            pasta = RAIZ / "modelos_salvos" / Path(a.base).stem
+            pasta = RAIZ / "modelos_salvos" / pasta_salvos
             joblib.dump({"ordem": usados, "meta": meta}, pasta / "stacking_meta.joblib")
     tab = pd.DataFrame(linhas).set_index("modelo")
     tab.round(4).to_csv(saida / "metricas.csv")
